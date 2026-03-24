@@ -438,11 +438,25 @@ class TestMattermostWebhook:
             test_flow()
 
             AppriseMock.assert_called_once()
-            apprise_instance_mock.add.assert_called_once_with(
-                f"mmost://{mm_block.hostname}:8065/{mm_block.token.get_secret_value()}/"
-                "?image=no&format=text&overflow=upstream"
-                "&channel=death-metal-anonymous%2Cgeneral"
-            )
+            apprise_instance_mock.add.assert_called_once()
+            add_call = apprise_instance_mock.add.call_args
+            assert add_call is not None
+            actual_url = add_call.kwargs.get("servers") or add_call.args[0]
+            parsed_url = urllib.parse.urlparse(actual_url)
+            actual_query = urllib.parse.parse_qs(parsed_url.query)
+
+            assert parsed_url.scheme == "mmost"
+            assert parsed_url.netloc == f"{mm_block.hostname}:8065"
+            assert parsed_url.path == f"/{mm_block.token.get_secret_value()}/"
+            assert actual_query["image"] == ["no"]
+            assert actual_query["format"] == ["text"]
+            assert actual_query["overflow"] == ["upstream"]
+
+            serialized_channels = actual_query.get("channel") or actual_query.get("to")
+            assert serialized_channels is not None
+            assert sorted(
+                channel.lstrip("#") for channel in serialized_channels[0].split(",")
+            ) == sorted(mm_block.channels)
 
             apprise_instance_mock.notify.assert_called_once_with(
                 body="test", title="", notify_type=PREFECT_NOTIFY_TYPE_DEFAULT

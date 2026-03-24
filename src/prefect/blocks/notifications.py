@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 from abc import ABC
@@ -723,17 +724,24 @@ class MattermostWebhook(AbstractAppriseNotificationBlock):
                 NotifyMattermost,  # pyright: ignore[reportUnknownVariableType] incomplete type hints in apprise
             )
 
+        notify_mattermost_kwargs: dict[str, Any] = {
+            "token": self.token.get_secret_value(),
+            "fullpath": self.path,
+            "host": self.hostname,
+            "user": self.botname,
+            "include_image": self.include_image,
+            "port": self.port,
+            "secure": self.secure,
+        }
+        channels_parameter = (
+            "targets"
+            if "targets" in inspect.signature(NotifyMattermost.__init__).parameters
+            else "channels"
+        )
+        notify_mattermost_kwargs[channels_parameter] = self.channels
+
         url = SecretStr(
-            NotifyMattermost(
-                token=self.token.get_secret_value(),
-                fullpath=self.path,
-                host=self.hostname,
-                user=self.botname,
-                channels=self.channels,
-                include_image=self.include_image,
-                port=self.port,
-                secure=self.secure,
-            ).url()  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType] incomplete type hints in apprise
+            NotifyMattermost(**notify_mattermost_kwargs).url()  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType] incomplete type hints in apprise
         )
         self._start_apprise_client(url)
 
