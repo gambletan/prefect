@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import concurrent.futures
+import contextvars
 import itertools
 import os
 import queue
@@ -229,7 +230,7 @@ class EventLoopThread(Portal):
 
             # Submit the call to the event loop
             assert self._loop is not None
-            asyncio.run_coroutine_threadsafe(self._run_call(call), self._loop)
+            self._submit_call(call)
             self._submitted_count += 1
 
         return call
@@ -286,6 +287,28 @@ class EventLoopThread(Portal):
         task = call.run()
         if task is not None:
             await task
+
+    def _submit_call(self, call: Call[Any]) -> None:
+        """
+        Schedule wrapper work on the loop without inheriting the submitter's live
+        contextvars.
+
+        The `Call` itself still carries the context captured when it was created, so
+        setup work that depends on settings or other explicit context continues to
+        behave as expected.
+        """
+        assert self._loop is not None
+
+        wrapper_context = contextvars.Context()
+        task_context = contextvars.Context()
+
+        def create_task() -> None:
+            task_context.run(self._loop.create_task, self._run_call(call))
+
+        if self._loop is get_running_loop():
+            create_task()
+        else:
+            self._loop.call_soon_threadsafe(create_task, context=wrapper_context)
 
     def add_shutdown_call(self, call: Call[Any]) -> None:
         self._on_shutdown.append(call)

@@ -1,8 +1,11 @@
 import concurrent.futures
+import contextvars
+import threading
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from prefect._internal.concurrency.api import create_detached_call
 from prefect._internal.concurrency.calls import Call
 from prefect._internal.concurrency.threads import EventLoopThread, WorkerThread
 
@@ -110,3 +113,57 @@ def test_thread_submit(work, thread_cls):
     call = thread.submit(Call.new(work, 1))
     assert call.result() == 1
     thread.shutdown()
+
+
+def test_event_loop_thread_submit_preserves_async_call_context():
+    marker = contextvars.ContextVar("marker", default=None)
+    thread = EventLoopThread()
+    thread.start()
+
+    async def read_marker():
+        return marker.get()
+
+    token = marker.set("caller")
+    try:
+        call = thread.submit(Call.new(read_marker))
+        assert call.result() == "caller"
+    finally:
+        marker.reset(token)
+        thread.shutdown()
+        thread.thread.join()
+
+
+def test_event_loop_thread_submit_detaches_submitter_context_for_detached_calls():
+    thread = EventLoopThread()
+    thread.start()
+
+    started = threading.Event()
+    submitted = threading.Event()
+    release = threading.Event()
+    call_ref: dict[str, Call[None]] = {}
+
+    async def mark_started() -> None:
+        started.set()
+
+    def submit_while_context_is_entered() -> None:
+        context = contextvars.copy_context()
+
+        def inner() -> None:
+            call_ref["call"] = thread.submit(create_detached_call(mark_started))
+            submitted.set()
+            release.wait(timeout=5)
+
+        context.run(inner)
+
+    submitter = threading.Thread(target=submit_while_context_is_entered)
+    submitter.start()
+
+    try:
+        assert submitted.wait(timeout=2)
+        assert started.wait(timeout=2)
+        assert call_ref["call"].result(timeout=2) is None
+    finally:
+        release.set()
+        submitter.join()
+        thread.shutdown()
+        thread.thread.join()
