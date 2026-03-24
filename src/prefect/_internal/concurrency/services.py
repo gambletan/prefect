@@ -4,6 +4,7 @@ import abc
 import asyncio
 import concurrent.futures
 import contextlib
+import contextvars
 import logging
 import os
 import queue
@@ -183,7 +184,7 @@ class _QueueServiceBase(abc.ABC, Generic[T]):
 
         while True:
             item: Optional[T] = await self._queue_get_thread.submit(
-                create_call(self._queue.get)
+                self._create_queue_get_call()
             ).aresult()
 
             if self._stopped:
@@ -218,6 +219,14 @@ class _QueueServiceBase(abc.ABC, Generic[T]):
     @abc.abstractmethod
     async def _handle(self, item: Any) -> Any:
         raise NotImplementedError
+
+    def _create_queue_get_call(self, *args: Any, **kwargs: Any) -> Any:
+        # Queue polling runs on a dedicated worker thread and does not need caller
+        # contextvars. A fresh context avoids re-entering copied contexts across
+        # threads during service teardown.
+        call = create_call(self._queue.get, *args, **kwargs)
+        call.context = contextvars.Context()
+        return call
 
     @contextlib.asynccontextmanager
     async def _lifespan(self) -> AsyncGenerator[None, Any]:
@@ -447,7 +456,7 @@ class BatchedQueueService(QueueService[T]):
             while batch_size < self.max_batch_size:
                 try:
                     item = await self._queue_get_thread.submit(
-                        create_call(self._queue.get, timeout=get_timeout(deadline))
+                        self._create_queue_get_call(timeout=get_timeout(deadline))
                     ).aresult()
 
                     if item is None:

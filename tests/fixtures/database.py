@@ -49,14 +49,16 @@ async def database_engine(db: PrefectDBInterface):
     yield engine
 
     # At the end of the test session, dispose of _any_ open engines, not just the one
-    # that we produced here.  Other engines may have been created from different event
-    # loops, and we need to ensure that they are all disposed of.
+    # that we produced here. Engines created from other event loops cannot safely
+    # close their pooled connections here, so we detach those pools instead and rely
+    # on the per-loop shutdown callback to close them on their owning loop.
 
-    engines = list(ENGINES.values())
+    current_loop = asyncio.get_running_loop()
+    engines = list(ENGINES.items())
     ENGINES.clear()
 
-    for engine in engines:
-        await engine.dispose()
+    for (loop, *_), engine in engines:
+        await engine.dispose(close=loop is current_loop)
 
     # Finally, free up all references to connections and clean up proactively so that
     # we don't have any lingering connections after this.  This should prevent
