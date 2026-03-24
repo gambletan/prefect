@@ -4,6 +4,7 @@ Thread-safe utilities for working with asynchronous event loops.
 
 import asyncio
 import concurrent.futures
+import contextvars
 import functools
 from collections.abc import Coroutine
 from typing import Any, Callable, Optional, TypeVar
@@ -24,6 +25,48 @@ def get_running_loop() -> Optional[asyncio.AbstractEventLoop]:
         return asyncio.get_running_loop()
     except RuntimeError:
         return None
+
+
+def as_asyncio_future(
+    future: concurrent.futures.Future[T],
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+) -> asyncio.Future[T]:
+    """
+    Bridge a concurrent future into an asyncio future without propagating the
+    source thread's contextvars into the destination loop.
+    """
+    loop = loop or get_running_loop()
+    if loop is None:
+        raise RuntimeError("An event loop is required to bridge this future.")
+
+    destination: asyncio.Future[T] = loop.create_future()
+
+    def transfer_result(source: concurrent.futures.Future[T]) -> None:
+        if loop.is_closed():
+            return
+
+        def set_result() -> None:
+            if destination.done():
+                return
+
+            if source.cancelled():
+                destination.cancel()
+                return
+
+            try:
+                destination.set_result(source.result())
+            except BaseException as exc:
+                destination.set_exception(exc)
+
+        loop.call_soon_threadsafe(set_result, context=contextvars.Context())
+
+    def cancel_source(source: asyncio.Future[T]) -> None:
+        if source.cancelled() and not future.done():
+            future.cancel()
+
+    future.add_done_callback(transfer_result)
+    destination.add_done_callback(cancel_source)
+    return destination
 
 
 def call_soon_in_loop(
@@ -73,6 +116,4 @@ async def run_coroutine_in_loop_from_async(
     if __loop is get_running_loop():
         return await __coro
     else:
-        return await asyncio.wrap_future(
-            asyncio.run_coroutine_threadsafe(__coro, __loop)
-        )
+        return await as_asyncio_future(asyncio.run_coroutine_threadsafe(__coro, __loop))

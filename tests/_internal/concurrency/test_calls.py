@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 
 import pytest
@@ -168,3 +169,22 @@ def test_call_equality_after_args_kwargs_deletion_targets():
         assert call_C_has_args != call_D_no_args
     except AttributeError:
         pytest.fail("AttributeError: call_C_has_args vs call_D_no_args")
+
+
+async def test_call_aresult_does_not_reenter_source_context():
+    call = Call.new(identity, 1)
+
+    def complete_future() -> None:
+        call.future.set_result(asyncio.Event())
+        # Keep the source context entered long enough for the destination loop to
+        # process the bridged callback.
+        time.sleep(0.1)
+
+    worker = threading.Thread(target=lambda: call.context.run(complete_future))
+    worker.start()
+    try:
+        result = await asyncio.wait_for(call.aresult(), timeout=1)
+    finally:
+        worker.join()
+
+    assert isinstance(result, asyncio.Event)

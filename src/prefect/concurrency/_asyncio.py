@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, AsyncGenerator, Literal, Optional
@@ -9,6 +8,7 @@ from uuid import UUID
 import anyio
 import httpx
 
+from prefect._internal.concurrency.event_loop import as_asyncio_future
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.responses import (
     ConcurrencyLimitWithLeaseResponse,
@@ -54,7 +54,7 @@ async def aacquire_concurrency_slots(
     service = ConcurrencySlotAcquisitionService.instance(frozenset(names))
     future = service.send((slots, mode, timeout_seconds, max_retries))
     try:
-        response = await asyncio.wrap_future(future)
+        response = await as_asyncio_future(future)
     except TimeoutError as timeout:
         raise AcquireConcurrencySlotTimeoutError(
             f"Attempt to acquire concurrency slots timed out after {timeout_seconds} second(s)"
@@ -99,7 +99,7 @@ async def aacquire_concurrency_slots_with_lease(
         (slots, mode, timeout_seconds, max_retries, lease_duration, strict, holder)
     )
     try:
-        response = await asyncio.wrap_future(future)
+        response = await as_asyncio_future(future)
     except TimeoutError as timeout:
         raise AcquireConcurrencySlotTimeoutError(
             f"Attempt to acquire concurrency slots timed out after {timeout_seconds} second(s)"

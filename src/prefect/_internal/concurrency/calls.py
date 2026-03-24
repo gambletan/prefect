@@ -31,7 +31,7 @@ from prefect._internal.concurrency.cancellation import (
     cancel_sync_at,
     get_deadline,
 )
-from prefect._internal.concurrency.event_loop import get_running_loop
+from prefect._internal.concurrency.event_loop import as_asyncio_future, get_running_loop
 
 T = TypeVar("T", infer_variance=True)
 Ts = TypeVarTuple("Ts")
@@ -371,7 +371,7 @@ class Call(Generic[T]):
         For use from asynchronous contexts.
         """
         try:
-            return await asyncio.wrap_future(self.future)
+            return await as_asyncio_future(self.future)
         except asyncio.CancelledError as exc:
             raise CancelledError() from exc
 

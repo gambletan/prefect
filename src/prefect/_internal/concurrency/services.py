@@ -18,7 +18,7 @@ from typing_extensions import Self, TypeVar, TypeVarTuple, Unpack
 from prefect._internal.concurrency import logger
 from prefect._internal.concurrency.api import create_call, from_sync
 from prefect._internal.concurrency.cancellation import get_deadline, get_timeout
-from prefect._internal.concurrency.event_loop import get_running_loop
+from prefect._internal.concurrency.event_loop import as_asyncio_future, get_running_loop
 from prefect._internal.concurrency.threads import WorkerThread, get_global_loop
 
 T = TypeVar("T")
@@ -262,7 +262,7 @@ class _QueueServiceBase(abc.ABC, Generic[T]):
         """
         future = self._drain(at_exit=at_exit)
         if get_running_loop() is not None:
-            return asyncio.wrap_future(future)
+            return as_asyncio_future(future)
         else:
             return future.result()
 
@@ -295,7 +295,7 @@ class _QueueServiceBase(abc.ABC, Generic[T]):
         if get_running_loop() is not None:
             if futures:
                 return asyncio.wait(
-                    [asyncio.wrap_future(fut) for fut in futures], timeout=timeout
+                    [as_asyncio_future(fut) for fut in futures], timeout=timeout
                 )
             # `wait` errors if it receives an empty list but we need to return a
             # coroutine still

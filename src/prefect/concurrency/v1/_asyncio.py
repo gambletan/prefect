@@ -1,10 +1,10 @@
-import asyncio
 from typing import Optional
 from uuid import UUID
 
 import httpx
 
 from prefect._internal.compatibility.async_dispatch import async_dispatch
+from prefect._internal.concurrency.event_loop import as_asyncio_future
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.responses import MinimalConcurrencyLimitResponse
 
@@ -44,7 +44,7 @@ async def aacquire_concurrency_slots(
     service = ConcurrencySlotAcquisitionService.instance(frozenset(names))
     future = service.send((task_run_id, timeout_seconds))
     try:
-        response = await asyncio.wrap_future(future)
+        response = await as_asyncio_future(future)
     except TimeoutError as timeout:
         raise AcquireConcurrencySlotTimeoutError(
             f"Attempt to acquire concurrency limits timed out after {timeout_seconds} second(s)"

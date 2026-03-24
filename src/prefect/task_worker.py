@@ -25,6 +25,7 @@ from prefect import Task
 from prefect._internal.compatibility.async_dispatch import async_dispatch
 from prefect._internal.compatibility.blocks import call_explicitly_async_block_method
 from prefect._internal.concurrency.api import create_call, from_sync
+from prefect._internal.concurrency.event_loop import as_asyncio_future
 from prefect.cache_policies import DEFAULT, NO_CACHE
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.objects import TaskRun
@@ -394,7 +395,7 @@ class TaskWorker:
                 return_type="state",
                 context=run_context,
             )
-            await asyncio.wrap_future(future)
+            await as_asyncio_future(future)
 
     async def execute_task_run(self, task_run: TaskRun) -> None:
         """Execute a task run in the task worker."""
