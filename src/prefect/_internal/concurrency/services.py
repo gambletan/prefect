@@ -16,9 +16,17 @@ from typing import TYPE_CHECKING, Any, Generic, NoReturn, Optional, Union, cast
 from typing_extensions import Self, TypeVar, TypeVarTuple, Unpack
 
 from prefect._internal.concurrency import logger
-from prefect._internal.concurrency.api import create_call, from_sync
+from prefect._internal.concurrency.api import (
+    create_call,
+    create_detached_call,
+    from_sync,
+)
 from prefect._internal.concurrency.cancellation import get_deadline, get_timeout
-from prefect._internal.concurrency.event_loop import as_asyncio_future, get_running_loop
+from prefect._internal.concurrency.event_loop import (
+    as_asyncio_future,
+    create_task_in_background_context,
+    get_running_loop,
+)
 from prefect._internal.concurrency.threads import WorkerThread, get_global_loop
 
 T = TypeVar("T")
@@ -104,12 +112,12 @@ class _QueueServiceBase(abc.ABC, Generic[T]):
 
         self._loop = asyncio.get_running_loop()
         self._done_event = asyncio.Event()
-        self._task = self._loop.create_task(self._run())
+        self._task = create_task_in_background_context(self._loop, self._run())
         self._queue_get_thread.start()
         self._started = True
 
         # Ensure that we wait for worker completion before loop thread shutdown
-        loop_thread.add_shutdown_call(create_call(self.drain))
+        loop_thread.add_shutdown_call(create_detached_call(self.drain))
 
         # Stop at interpreter exit by default
         # Handling items may require spawning a thread and in 3.9 new threads

@@ -6,6 +6,7 @@ import abc
 import asyncio
 import concurrent.futures
 import contextlib
+import contextvars
 from collections.abc import Awaitable, Iterable
 from contextlib import AbstractContextManager
 from typing import Any, Callable, Optional, Union, cast
@@ -30,6 +31,20 @@ def create_call(
     __fn: _SyncOrAsyncCallable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> Call[T]:
     return Call[T].new(__fn, *args, **kwargs)
+
+
+def create_detached_call(
+    __fn: _SyncOrAsyncCallable[P, T], *args: P.args, **kwargs: P.kwargs
+) -> Call[T]:
+    """
+    Create a call that should not inherit the caller's active contextvars.
+
+    This is intended for infrastructure lifecycle work such as starting or stopping
+    long-lived background services on the global loop.
+    """
+    call = create_call(__fn, *args, **kwargs)
+    call.context = contextvars.Context()
+    return call
 
 
 def cast_to_call(

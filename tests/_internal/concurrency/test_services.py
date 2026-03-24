@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import contextvars
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,8 @@ from prefect.settings import (
     PREFECT_TEST_MODE,
     temporary_settings,
 )
+
+TEST_CONTEXTVAR = contextvars.ContextVar("TEST_CONTEXTVAR", default=None)
 
 
 class MockService(QueueService[int]):
@@ -56,6 +59,13 @@ class MockBatchedService(BatchedQueueService[int]):
         print(f"Handled batch for {self}")
 
 
+class ContextCapturingService(QueueService[int]):
+    seen: list[str | None] = []
+
+    async def _handle(self, item: int):
+        self.seen.append(TEST_CONTEXTVAR.get())
+
+
 @pytest.fixture(autouse=True)
 def reset_mock_services():
     yield
@@ -63,10 +73,12 @@ def reset_mock_services():
     # Reset mocks
     MockService.mock.reset_mock(side_effect=True)
     MockBatchedService.mock.reset_mock(side_effect=True)
+    ContextCapturingService.seen.clear()
 
     # Drain all items from the queue
     MockService.drain_all()
     MockBatchedService.drain_all()
+    ContextCapturingService.drain_all()
 
     # Shutdown the global loop
     wait_for_global_loop_exit()
@@ -377,6 +389,19 @@ def test_lifespan():
     LifespanService.instance().send(1)
     LifespanService.drain_all()
     assert LifespanService.events == ["enter", "exit"]
+
+
+def test_service_does_not_inherit_creator_context():
+    token = TEST_CONTEXTVAR.set("creator-context")
+    try:
+        instance = ContextCapturingService.instance()
+    finally:
+        TEST_CONTEXTVAR.reset(token)
+
+    instance.send(1)
+    ContextCapturingService.drain_all()
+
+    assert ContextCapturingService.seen == [None]
 
 
 def test_lifespan_on_base_exception():

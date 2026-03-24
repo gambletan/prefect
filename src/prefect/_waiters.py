@@ -13,7 +13,13 @@ import anyio
 from cachetools import TTLCache
 from typing_extensions import Self
 
-from prefect._internal.concurrency.api import create_call, from_async, from_sync
+from prefect._internal.concurrency.api import (
+    create_call,
+    create_detached_call,
+    from_async,
+    from_sync,
+)
+from prefect._internal.concurrency.event_loop import create_task_in_background_context
 from prefect._internal.concurrency.threads import get_global_loop
 from prefect.client.schemas.objects import (
     TERMINAL_STATES,
@@ -107,12 +113,12 @@ class FlowRunWaiter:
             assert self._loop is not None
 
         consumer_started = asyncio.Event()
-        self._consumer_task = self._loop.create_task(
-            self._consume_events(consumer_started)
+        self._consumer_task = create_task_in_background_context(
+            self._loop, self._consume_events(consumer_started)
         )
         asyncio.run_coroutine_threadsafe(consumer_started.wait(), self._loop)
 
-        loop_thread.add_shutdown_call(create_call(self.stop))
+        loop_thread.add_shutdown_call(create_detached_call(self.stop))
         atexit.register(self.stop)
         self._started = True
 

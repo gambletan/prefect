@@ -1,11 +1,16 @@
 import asyncio
+import contextvars
+import threading
 import uuid
 
 import pytest
 
+import prefect.task_runs as task_runs_module
 from prefect import task
 from prefect.task_engine import run_task_async
 from prefect.task_runs import TaskRunWaiter
+
+TEST_CONTEXTVAR = contextvars.ContextVar("TEST_CONTEXTVAR", default=None)
 
 
 class TestTaskRunWaiter:
@@ -22,6 +27,41 @@ class TestTaskRunWaiter:
         instance = TaskRunWaiter.instance()
         instance.stop()
         assert TaskRunWaiter.instance() is not instance
+
+    def test_consumer_task_does_not_inherit_creator_context(self, monkeypatch):
+        started = threading.Event()
+        observed: dict[str, str | None] = {}
+
+        class DummySubscriber:
+            async def __aenter__(self):
+                observed["value"] = TEST_CONTEXTVAR.get()
+                started.set()
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                await asyncio.Event().wait()
+                raise StopAsyncIteration
+
+        monkeypatch.setattr(
+            task_runs_module,
+            "get_events_subscriber",
+            lambda **_: DummySubscriber(),
+        )
+
+        token = TEST_CONTEXTVAR.set("creator-context")
+        try:
+            TaskRunWaiter.instance()
+            assert started.wait(timeout=5)
+        finally:
+            TEST_CONTEXTVAR.reset(token)
+
+        assert observed["value"] is None
 
     @pytest.mark.timeout(20)
     @pytest.mark.usefixtures("use_hosted_api_server")

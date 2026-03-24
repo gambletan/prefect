@@ -69,6 +69,35 @@ def as_asyncio_future(
     return destination
 
 
+def get_background_context() -> contextvars.Context:
+    """
+    Build a context for long-lived infrastructure tasks.
+
+    These tasks should not inherit the caller's active run context, but they still
+    need the current settings context so they can connect to the right API.
+    """
+    context = contextvars.Context()
+
+    try:
+        from prefect.context import SettingsContext
+    except Exception:
+        return context
+
+    if settings_context := SettingsContext.get():
+        context.run(SettingsContext.__var__.set, settings_context)
+
+    return context
+
+
+def create_task_in_background_context(
+    loop: asyncio.AbstractEventLoop, coro: Coroutine[Any, Any, T]
+) -> asyncio.Task[T]:
+    """
+    Create a task on the target loop without inheriting the caller's live context.
+    """
+    return get_background_context().run(loop.create_task, coro)
+
+
 def call_soon_in_loop(
     __loop: asyncio.AbstractEventLoop,
     __fn: Callable[P, T],
@@ -83,6 +112,7 @@ def call_soon_in_loop(
     Returns a future that can be used to retrieve the result of the call.
     """
     future: concurrent.futures.Future[T] = concurrent.futures.Future()
+    context = contextvars.Context()
 
     @functools.wraps(__fn)
     def wrapper() -> None:
@@ -98,9 +128,9 @@ def call_soon_in_loop(
     # `call_soon...` returns a `Handle` object which doesn't provide access to the
     # result of the call. We wrap the call with a future to facilitate retrieval.
     if __loop is get_running_loop():
-        __loop.call_soon(wrapper)
+        __loop.call_soon(wrapper, context=context)
     else:
-        __loop.call_soon_threadsafe(wrapper)
+        __loop.call_soon_threadsafe(wrapper, context=context)
 
     return future
 

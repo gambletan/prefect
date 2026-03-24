@@ -5,6 +5,7 @@ Utilities for cancellation in synchronous and asynchronous contexts.
 import abc
 import asyncio
 import contextlib
+import contextvars
 import ctypes
 import math
 import os
@@ -293,7 +294,9 @@ class AsyncCancelScope(CancelScope):
                 self._anyio_scope.cancel()
             else:
                 # `Task.cancel` is not thread safe
-                self.loop.call_soon_threadsafe(self._anyio_scope.cancel)
+                self.loop.call_soon_threadsafe(
+                    self._anyio_scope.cancel, context=contextvars.Context()
+                )
 
         return True
 
