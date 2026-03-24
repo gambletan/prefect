@@ -1,10 +1,12 @@
 import asyncio
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from typing import Any, AsyncGenerator, Callable, Generator, List, Optional, Union
 from unittest import mock
@@ -86,6 +88,8 @@ async def hosted_api_server(
 
     # Will connect to the same database as normal test clients
     settings = get_current_settings().to_environment_variables(exclude_unset=True)
+    static_dir = tempfile.mkdtemp(prefix=f"prefect-ui-static-{port}-")
+    settings["PREFECT_UI_STATIC_DIRECTORY"] = static_dir
 
     # We must add creationflags to a dict so it is only passed as a function
     # parameter on Windows, because the presence of creationflags causes
@@ -160,6 +164,11 @@ async def hosted_api_server(
 
         except ProcessLookupError:
             pass
+        finally:
+            try:
+                shutil.rmtree(static_dir)
+            except FileNotFoundError:
+                pass
 
 
 @pytest.fixture(autouse=True)
