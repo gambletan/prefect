@@ -57,7 +57,7 @@ repos:
         args:
           [
             "-c",
-            ". $NVM_DIR/nvm.sh || true && cd ui-v2 && nvm use || true && npm i --no-upgrade --silent --no-progress && npm run check:staged",
+            ". $NVM_DIR/nvm.sh || true && cd ui-v2 && (command -v nvm >/dev/null 2>&1 && nvm use || true) && npm i --no-upgrade --silent --no-progress && npm run check:staged",
           ]
         files: |
           (?x)^(
@@ -72,7 +72,7 @@ repos:
         args:
           [
             "-c",
-            ". $NVM_DIR/nvm.sh || true && cd ui-v2 && nvm use || true && npm i --no-upgrade --silent --no-progress && npm run service-sync",
+            ". $NVM_DIR/nvm.sh || true && cd ui-v2 && (command -v nvm >/dev/null 2>&1 && nvm use || true) && npm i --no-upgrade --silent --no-progress && npm run service-sync",
           ]
         files: |
           (?x)^(
