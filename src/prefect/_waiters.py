@@ -209,7 +209,9 @@ class FlowRunWaiter:
 
             with anyio.move_on_after(delay=timeout):
                 await from_async.wait_for_call_in_loop_thread(
-                    create_call(finished_event.wait)
+                    # This wait can outlive the caller's task, so do not capture the
+                    # caller's active contextvars in the global loop task.
+                    create_detached_call(finished_event.wait)
                 )
         finally:
             with instance._completion_events_lock:

@@ -220,7 +220,9 @@ class TaskRunWaiter:
 
             with anyio.move_on_after(delay=timeout):
                 await from_async.wait_for_call_in_loop_thread(
-                    create_call(finished_event.wait)
+                    # This wait can outlive the caller's task, so do not capture the
+                    # caller's active contextvars in the global loop task.
+                    create_detached_call(finished_event.wait)
                 )
 
             # After waiting, retrieve the state from the cache

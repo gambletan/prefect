@@ -99,6 +99,54 @@ class TestTaskRunWaiter:
         assert not run.done()
         await run
 
+    async def test_wait_for_task_run_wait_does_not_inherit_creator_context(
+        self, monkeypatch
+    ):
+        missing = object()
+        observed_wait_contexts: list[object] = []
+        finished_event = asyncio.Event()
+
+        class DummySubscriber:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                await asyncio.Event().wait()
+                raise StopAsyncIteration
+
+        async def fake_wait_for_call_in_loop_thread(call, *args, **kwargs):
+            if call.fn is asyncio.Event:
+                return finished_event
+
+            observed_wait_contexts.append(call.context.get(TEST_CONTEXTVAR, missing))
+            finished_event.set()
+            return await call.fn()
+
+        monkeypatch.setattr(
+            task_runs_module,
+            "get_events_subscriber",
+            lambda **_: DummySubscriber(),
+        )
+        monkeypatch.setattr(
+            task_runs_module.from_async,
+            "wait_for_call_in_loop_thread",
+            fake_wait_for_call_in_loop_thread,
+        )
+
+        token = TEST_CONTEXTVAR.set("creator-context")
+        try:
+            await TaskRunWaiter.wait_for_task_run(uuid.uuid4())
+        finally:
+            TEST_CONTEXTVAR.reset(token)
+
+        assert observed_wait_contexts == [missing]
+
     @pytest.mark.timeout(20)
     @pytest.mark.usefixtures("use_hosted_api_server")
     async def test_non_singleton_mode(self, prefect_client, emitting_events_pipeline):
